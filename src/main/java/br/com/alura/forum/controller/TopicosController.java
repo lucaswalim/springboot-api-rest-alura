@@ -8,6 +8,12 @@ import br.com.alura.forum.modelo.Topico;
 import br.com.alura.forum.repository.CursoRepository;
 import br.com.alura.forum.repository.TopicoRepository;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.cache.annotation.CacheEvict;
+import org.springframework.cache.annotation.Cacheable;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
+import org.springframework.data.domain.Sort;
+import org.springframework.data.web.PageableDefault;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.util.UriComponentsBuilder;
@@ -15,7 +21,6 @@ import org.springframework.web.util.UriComponentsBuilder;
 import javax.transaction.Transactional;
 import javax.validation.Valid;
 import java.net.URI;
-import java.util.List;
 import java.util.Optional;
 
 @RestController
@@ -27,21 +32,50 @@ public class TopicosController {
     @Autowired
     CursoRepository cursoRepository;
 
-    @GetMapping
-    // localhost:topicos?nomeCurso=Spring+Boot
-    public List<TopicoDto> lista(String nomeCurso) {
-        List<Topico> topicos;
+    /*
+        @GetMapping
+        // localhost:topicos?nomeCurso=Spring+Boot
+        // RequestParam indica que variável virá pela Url, e nomeCurso não sera obrigatorio
+        // http://localhost:8080/topicos/?pagina=0&quantidade=3&ordenacao=id
+        public Page<TopicoDto> lista(@RequestParam(required = false) String nomeCurso,
+                                     @RequestParam int pagina,
+                                     @RequestParam int quantidade,
+                                     @RequestParam String ordenacao
+        ) {
 
+            Pageable paginacao = PageRequest.of(pagina, quantidade, Sort.Direction.ASC, ordenacao);
+
+            Page<Topico> topicos;
+            if (nomeCurso == null) {
+                topicos = topicoRepository.findAll(paginacao);
+            } else {
+                topicos = topicoRepository.findByCursoNome(nomeCurso, paginacao);
+            }
+            return TopicoDto.converter(topicos);
+        }
+     */
+
+    // localhost:topicos?nomeCurso=Spring+Boot
+    // Adicionamos a anotação @EnableSpringDataWebSupport na classe main para permitir o spring pegar da requisição
+    // e Repassar ao SpringData.
+    // Novo Padrão http://localhost:8080/topicos/?page=0&size=10&ordenacao=id,asc
+    @GetMapping
+    @Cacheable(value = "listaDeTopicos") // funciona como o Id do cache
+    public Page<TopicoDto> lista(
+            @RequestParam(required = false) String nomeCurso,
+            @PageableDefault(sort = "id", direction = Sort.Direction.DESC, page = 0, size = 10) Pageable paginacao) {
+        Page<Topico> topicos;
         if (nomeCurso == null) {
-            topicos = topicoRepository.findAll();
+            topicos = topicoRepository.findAll(paginacao);
         } else {
-            topicos = topicoRepository.findByCursoNome(nomeCurso);
+            topicos = topicoRepository.findByCursoNome(nomeCurso, paginacao);
         }
         return TopicoDto.converter(topicos);
     }
 
     @PostMapping
     @Transactional
+    @CacheEvict(value = "listaDeTopicos", allEntries = true) // Vai limpar o cache ao cadastrar novo recurso
     public ResponseEntity<TopicoDto> cadastrar(@RequestBody @Valid TopicoForm form, UriComponentsBuilder uriBuilder) {
         Topico topico = form.converter(cursoRepository);
         topicoRepository.save(topico);
@@ -63,6 +97,7 @@ public class TopicosController {
 
     @PutMapping("/{id}")
     @Transactional
+    @CacheEvict(value = "listaDeTopicos", allEntries = true) // Vai limpar o cache ao atualizar recurso
     public ResponseEntity<TopicoDto> atualizar(@PathVariable Long id, @RequestBody @Valid AtualizacaoTopicoForm form) {
         Optional<Topico> topico = topicoRepository.findById(id);
 
@@ -77,6 +112,7 @@ public class TopicosController {
 
     @DeleteMapping("/{id}")
     @Transactional
+    @CacheEvict(value = "listaDeTopicos", allEntries = true) // Vai limpar o cache ao deletar recurso
     public ResponseEntity<?> remover(@PathVariable Long id) {
         Optional<Topico> topico = topicoRepository.findById(id);
 
